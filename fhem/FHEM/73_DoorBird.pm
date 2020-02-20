@@ -1225,7 +1225,7 @@ sub DoorBird_Read($) {
 	### Log Entry for debugging purposes
 	Log3 $name, 5, $name. " : DoorBird_Read _____________________________________________________________________";
 	Log3 $name, 5, $name. " : DoorBird_Read - UDP Client said PeerHost          : " . $PeerHost	if defined($PeerHost);
-	Log3 $name, 5, $name. " : DoorBird_Read - UDP Client said buf               : " . $buf		if defined($buf);
+	#Log3 $name, 5, $name. " : DoorBird_Read - UDP Client said buf               : " . $buf		if defined($buf);
 	Log3 $name, 5, $name. " : DoorBird_Read - UDP Client said flags             : " . $flags	if defined($flags);
 	Log3 $name, 5, $name. " : DoorBird_Read - UDP Client said data              : " . $data		if defined($data);
 	
@@ -1299,64 +1299,16 @@ sub DoorBird_Read($) {
 				my $CIPHERTEXT	= substr($data,    72, 68);
 				my $FiveCharPw  = substr($password, 0,  5);
 			
-				### Generate user friendly hex-string for data
-				my $HexFriendlyData;
-				for (my $i=0; $i < (length($data)/2); $i++) {
-					$HexFriendlyData .= "0x" . substr($data, $i*2,  2) . " ";
-				}
-				
-				### Generate user friendly hex-string for Ident
-				my $HexFriendlyIdent;
-				for (my $i=0; $i < (length($IDENT)/2); $i++) {
-					$HexFriendlyIdent .= "0x" . substr($IDENT, $i*2,  2) . " ";
-				}
-				
-				### Generate user friendly hex-string for Version
-				my $HexFriendlyVersion;
-				for (my $i=0; $i < (length($VERSION)/2); $i++) {
-					$HexFriendlyVersion .= "0x" . substr($VERSION, $i*2,  2) . " ";
-				}
-				
-				### Generate user friendly hex-string for OpsLimit
-				my $HexFriendlyOpsLimit;
-				for (my $i=0; $i < (length($OPSLIMIT)/2); $i++) {
-					$HexFriendlyOpsLimit .= "0x" . substr($OPSLIMIT, $i*2,  2) . " ";
-				}
-				
-				### Generate user friendly hex-string for MemLimit
-				my $HexFriendlyMemLimit;
-				for (my $i=0; $i < (length($MEMLIMIT)/2); $i++) {
-					$HexFriendlyMemLimit .= "0x" . substr($MEMLIMIT, $i*2,  2) . " ";
-				}
-				
-				### Generate user friendly hex-string for Salt
-				my $HexFriendlySalt;
-				for (my $i=0; $i < (length($SALT)/2); $i++) {
-					$HexFriendlySalt .= "0x" . substr($SALT, $i*2,  2) . " ";
-				}
-				
-				### Generate user friendly hex-string for Nonce
-				my $HexFriendlyNonce;
-				for (my $i=0; $i < (length($NONCE)/2); $i++) {
-					$HexFriendlyNonce .= "0x" . substr($NONCE, $i*2,  2) . " ";
-				}
-				
-				### Generate user friendly hex-string for CipherText
-				my $HexFriendlyCipherText;
-				for (my $i=0; $i < (length($CIPHERTEXT)/2); $i++) {
-					$HexFriendlyCipherText .= "0x" . substr($CIPHERTEXT, $i*2,  2) . " ";
-				}	
-				
 				### Log Entry for debugging purposes
 				Log3 $name, 5, $name. " : DoorBird_Read ------------------------------ Encryption Version 1 in accordance to DoorBird API has been used ------------------------";
-				#Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Udp hex                : " . $HexFriendlyData;
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Ident hex              : " . $HexFriendlyIdent;
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Version hex            : " . $HexFriendlyVersion;
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client OpsLimit hex           : " . $HexFriendlyOpsLimit;
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client MemLimit hex           : " . $HexFriendlyMemLimit;
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Salt hex               : " . $HexFriendlySalt;
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Nonce hex              : " . $HexFriendlyNonce;
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Cipher hex             : " . $HexFriendlyCipherText;
+				#Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Udp hex                : " . DoorBird_hex_expand($data);
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Ident hex              : " . DoorBird_hex_expand($IDENT);
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Version hex            : " . DoorBird_hex_expand($VERSION);
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client OpsLimit hex           : " . DoorBird_hex_expand($OPSLIMIT);
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client MemLimit hex           : " . DoorBird_hex_expand($MEMLIMIT);
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Salt hex               : " . DoorBird_hex_expand($SALT);
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Nonce hex              : " . DoorBird_hex_expand($NONCE);
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Client Cipher hex             : " . DoorBird_hex_expand($CIPHERTEXT);
 
 				### Convert in accordance to API 0.24 description 
 				$IDENT 		= hex($IDENT);
@@ -1389,15 +1341,9 @@ sub DoorBird_Read($) {
 				### Unpack Password Hash
 				my $StrechedPWHex = unpack("H*",$PASSWORDHASH);
 
-				### Generate user friendly hex-string
-				my $StrechedPWHexFriendly;
-				for (my $i=0; $i < (length($StrechedPWHex)/2); $i++) {
-					$StrechedPWHexFriendly .= "0x" . substr($StrechedPWHex, $i*2,  2) . " ";
-				}
-
 				### Log Entry for debugging purposes
 				Log3 $name, 5, $name. " : DoorBird_Read -- Part 3 ------------------------------------------------------------------------------------------------------------------------";
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP StrechedPW hex friendly       : " . $StrechedPWHexFriendly;
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP StrechedPW hex friendly       : " . DoorBird_hex_expand($StrechedPWHex);
 
 				
 				### Open crypto_aead object
@@ -1418,42 +1364,20 @@ sub DoorBird_Read($) {
 				### Unpack message as hex
 				 my $DecryptedMsgHex =  $msg->to_hex();
 				
-				### Generate user friendly hex-string
-				my $StrechedMsgHexFriendly;
-				for (my $i=0; $i < (length($DecryptedMsgHex)/2); $i++) {
-					$StrechedMsgHexFriendly .= "0x" . substr($DecryptedMsgHex, $i*2,  2) . " ";
-				}
-				
 				### Log Entry for debugging purposes
 				Log3 $name, 5, $name. " : DoorBird_Read -- Part 4 ------------------------------------------------------------------------------------------------------------------------";
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Msg        hex friendly       : " . $StrechedMsgHexFriendly;
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Msg        hex friendly       : " . DoorBird_hex_expand($DecryptedMsgHex);
 
 				### Split up in accordance to API 0.24 description in hex values
 				my $INTERCOM_ID = substr($DecryptedMsgHex,  0, 12);
 				my $EVENT 		= substr($DecryptedMsgHex, 12, 16);
 				my $TIMESTAMP 	= substr($DecryptedMsgHex, 28,  8);
 
-				### Generate user friendly hex-string for Intercom_Id
-				my $Intercom_IdHexFriendly;
-				for (my $i=0; $i < (length($INTERCOM_ID)/2); $i++) {
-					$Intercom_IdHexFriendly .= "0x" . substr($INTERCOM_ID, $i*2,  2) . " ";
-				}
-				### Generate user friendly hex-string for Event
-				my $EventHexFriendly;
-				for (my $i=0; $i < (length($EVENT)/2); $i++) {
-					$EventHexFriendly .= "0x" . substr($EVENT, $i*2,  2) . " ";
-				}
-				### Generate user friendly hex-string for Timestamp
-				my $TimestampHexFriendly;
-				for (my $i=0; $i < (length($TIMESTAMP)/2); $i++) {
-					$TimestampHexFriendly .= "0x" . substr($TIMESTAMP, $i*2,  2) . " ";
-				}
-
 				### Log Entry for debugging purposes
 				Log3 $name, 5, $name. " : DoorBird_Read -- Part 5 ------------------------------------------------------------------------------------------------------------------------";
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Intercom_Id hex friendly      : " . $Intercom_IdHexFriendly;
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Event hex friendly            : " . $EventHexFriendly;
-				Log3 $name, 5, $name. " : DoorBird_Read - UDP Timestamp hex friendly        : " . $TimestampHexFriendly;
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Intercom_Id hex friendly      : " . DoorBird_hex_expand($INTERCOM_ID);
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Event hex friendly            : " . DoorBird_hex_expand($EVENT);
+				Log3 $name, 5, $name. " : DoorBird_Read - UDP Timestamp hex friendly        : " . DoorBird_hex_expand($TIMESTAMP);
 
 				### Convert in accordance to API 0.24 description in hex values
 				$INTERCOM_ID    = pack("H*", $INTERCOM_ID);
@@ -3984,6 +3908,15 @@ sub DoorBird_SipStatus_Request($$) {
 	}
 }
 ####END#######  Define Subfunction for SIP Status REQUEST  #####################################################END#####
+
+
+###START###### Expand Hex String ##############################################################################START####
+sub DoorBird_hex_expand($) {
+  my ($input) = @_;
+
+  return "0x".join(" 0x", unpack("(A2)*", $input));
+}
+####END####### Expand Hex String ###############################################################################END#####
 
 
 ###START###### Encrypt Credential #############################################################################START####
