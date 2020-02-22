@@ -53,6 +53,7 @@ use MIME::Base64;
 use Crypt::NaCl::Sodium qw( :utils );
 use Crypt::Argon2 qw/argon2i_raw/;
 use IO::Socket;
+use IO::String;
 use LWP::UserAgent;
 use constant false => 0;
 use constant true  => 1;
@@ -2199,15 +2200,14 @@ sub DoorBird_FirmwareStatus($) {
 	Log3 $name, 5, $name. " : DoorBird_FirmwareStatus - Checking firmware status on doorbird page";
 	
 	my $FirmwareVersionUnit = ReadingsVal($name, "FIRMWARE", 0);
+	my $FirmwareDevice = ReadingsVal($name, "DEVICE-TYPE", "unknown");
 
 	### Download website of changelocks
 	my $html = GetFileFromURL("https://www.doorbird.com/changelog");
 	
-	### Get the latest firmware number
-	my $result;
-	if ($html =~ /(?<=Firmware version )(.*)(?=\n=====)/) {
-		$result = $1;
-	}
+	### Get the latest firmware number for this product
+	my $versions = DoorBird_parseChanglog($hash, $html);
+	my $result = DoorBird_findNewestFWVersion($hash, $versions, $FirmwareDevice);
 
 	### Log Entry for debugging purposes
 	Log3 $name, 5, $name. " : DoorBird_FirmwareStatus - result                  : " . $result;
@@ -4006,6 +4006,86 @@ sub DoorBird_BlockGet($$$$) {
 	return($err, $data);
 }
 ####END####### Blocking Get ####################################################################################END#####
+
+
+# Changelog parser for DoorBird changelog as of 2020-02-22 (or earlier)
+# containing multiple product lines. Returns a hash ref containing the newest
+# version number for each product name or prefix found.
+#
+# Prefixes are denoted by a trailing 'x', as in the original changelog. Note:
+# this means that still multiple versions matching a single product could be in
+# the hash, e. g. for different prefixes all matching the final product name.
+
+sub DoorBird_parseChanglog($$)
+{
+  my ($hash, $data) = @_;
+  my $name = $hash->{NAME};
+
+  my $lines = IO::String->new($data);
+  my $all_versions;
+
+  my $version;
+  while(my $line = <$lines>)
+  {
+	if ($line =~ /^Firmware version (\d{6})$/)
+	{
+	  $version = $1;
+	}
+	elsif ($line =~ /^Products affected: (.*)$/)
+	{
+	  if (defined($version))
+	  {
+		my @products = split(/,\s*/, $1);
+		foreach my $product (@products)
+		{
+		  next if $product =~ /Preceding version: /; # buggy line in current changelog file
+		  if (!defined($all_versions->{$product})
+			  or 0 + $all_versions->{$product} < 0 + $version)
+		  {
+			Log3 $name, 5, $name. " : found version $version for $product";
+			$all_versions->{$product} = $version;
+		  }
+		}
+		undef $version;
+	  }
+	  else
+	  {
+		Log3 $name, 3, $name. " : products without version found in changelog, ignored.";
+	  }
+	}
+  }
+
+  return $all_versions;
+}
+
+# Find newest firmware version for this device by name or prefix.
+# The versions hash ref expected as second argument should match the format
+# returned from DoorBird_parseChangelog().
+
+sub DoorBird_findNewestFWVersion($$$)
+{
+  my ($hash, $versions, $product_name) = @_;
+  my $name = $hash->{NAME};
+
+  my $newest = 0;
+
+  foreach my $product (sort keys %$versions)
+  {
+	# optional prefix matching
+	my $prefix = $product;
+	$prefix =~ s/x$//;
+
+	if (length($prefix) <= length($product_name)
+		and $prefix eq substr($product_name, 0, length($prefix))
+		and 0 + $newest < 0 + $versions->{$product})
+	{
+	  $newest = $versions->{$product};
+	}
+  }
+
+  return $newest;
+}
+
 1;
 
 ###START###### Description for fhem commandref ################################################################START####
