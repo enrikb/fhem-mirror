@@ -2160,8 +2160,6 @@ sub DoorBird_Info_Request($$) {
 					readingsBulkUpdate($hash, $key, $VersionContent -> {$key} );
 				}
 			}
-			### Update Reading for Firmware-Status
-			readingsBulkUpdate($hash, "Firmware-Status", "up-to-date");
 
 			### Update SessionId
 			DoorBird_RenewSessionID($hash);
