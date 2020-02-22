@@ -3915,15 +3915,10 @@ sub DoorBird_SipStatus_Request($$) {
 					readingsBulkUpdate($hash, "SIP_" . $key, $VersionContent -> {$key} );
 				}
 			}
-			### Update Reading for Firmware-Status
-			readingsBulkUpdate($hash, "Firmware-Status", "up-to-date");
 
 			### Execute Readings Bulk Update
 			readingsEndUpdate($hash, 1);
 
-			### Check for Firmware-Updates
-			DoorBird_FirmwareStatus($hash);
-			
 			return "Readings have been updated!\n";
 		}
 	}
