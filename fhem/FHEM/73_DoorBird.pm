@@ -2261,7 +2261,7 @@ sub DoorBird_FirmwareStatus($) {
 	my $html = GetFileFromURL("https://www.doorbird.com/changelog");
 	
 	### Get the latest firmware number for this product
-	my $versions = DoorBird_parseChanglog($hash, $html);
+	my $versions = DoorBird_parseChangelog($hash, $html);
 	my $result = DoorBird_findNewestFWVersion($hash, $versions, $FirmwareDevice);
 
 	### Log Entry for debugging purposes
@@ -4071,7 +4071,7 @@ sub DoorBird_BlockGet($$$$) {
 # this means that still multiple versions matching a single product could be in
 # the hash, e. g. for different prefixes all matching the final product name.
 
-sub DoorBird_parseChanglog($$)
+sub DoorBird_parseChangelog($$)
 {
   my ($hash, $data) = @_;
   my $name = $hash->{NAME};
