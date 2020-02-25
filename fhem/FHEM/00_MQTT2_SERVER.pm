@@ -51,7 +51,7 @@ MQTT2_SERVER_Initialize($)
     sslCertPrefix
   );
   use warnings 'qw';
-  $hash->{AttrList} = join(" ", @attrList);
+  $hash->{AttrList} = join(" ", @attrList)." ".$readingFnAttributes;
 }
 
 #####################################
@@ -162,6 +162,7 @@ MQTT2_SERVER_Set($@)
     return "Usage: publish -r topic [value]" if(@a < 1);
     my $tp = shift(@a);
     my $val = join(" ", @a);
+    readingsSingleUpdate($hash, "lastPublish", "$tp:$val", 1);
     MQTT2_SERVER_doPublish($hash->{CL}, $hash, $tp, $val, $retain);
   }
 }
@@ -440,8 +441,7 @@ MQTT2_SERVER_doPublish($$$$;$)
   }
 
   foreach my $clName (keys %{$server->{clients}}) {
-    MQTT2_SERVER_sendto($server, $defs{$clName}, $tp, $val)
-        if($src->{NAME} ne $clName);
+    MQTT2_SERVER_sendto($server, $defs{$clName}, $tp, $val);
   }
 
   my $serverName = $server->{NAME};

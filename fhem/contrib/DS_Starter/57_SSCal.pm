@@ -48,6 +48,8 @@ eval "use FHEM::Meta;1" or my $modMetaAbsent = 1;
 
 # Versions History intern
 my %SSCal_vNotesIntern = (
+  "1.15.0" => "24.02.2020  fix recurrence WEEKLY by DAY, MONTHLY by MONTHDAY ",
+  "1.14.0" => "23.02.2020  new setter \"calUpdate\" consistent for both models, calEventList and calToDoList are obsolete ",
   "1.13.0" => "22.02.2020  manage recurring entries if one/more of a series entry is deleted or changed and their reminder times ",
   "1.12.0" => "15.02.2020  create At-devices from calendar entries if FHEM-commands or Perl-routines detected in \"Summary\", minor fixes ", 
   "1.11.0" => "14.02.2020  new function SSCal_doCompositeEvents to create Composite Events for special notify use in FHEM ",
@@ -436,9 +438,9 @@ sub SSCal_Set($@) {
       $setlist = "Unknown argument $opt, choose one of ".
 	             "credentials "
                  ;  
-  } elsif ($model eq "Diary") {
+  } elsif ($model eq "Diary") {                                                 # Model Terminkalender
       $setlist = "Unknown argument $opt, choose one of ".
-                 "calEventList ".
+                 "calUpdate ".
                  "credentials ".
                  ($evids?"deleteEventId:$evids ":"deleteEventId:noArg ").
                  "eraseReadings:noArg ".
@@ -447,9 +449,9 @@ sub SSCal_Set($@) {
                  ($idxlist?"purgeSendqueue:-all-,-permError-,$idxlist ":"purgeSendqueue:-all-,-permError- ").
                  "restartSendqueue:noArg "
                  ;
-  } else {                                                                      # Model ist "Tasks"
+  } else {                                                                      # Model Aufgabenliste
       $setlist = "Unknown argument $opt, choose one of ".
-                 "calToDoList ".
+                 "calUpdate ".
 				 "cleanCompleteTasks:noArg ".
                  "credentials ".
                  ($evids?"deleteEventId:$evids ":"deleteEventId:noArg ").
@@ -511,89 +513,64 @@ sub SSCal_Set($@) {
           return "SendQueue entry with index \"$prop\" deleted";
       }
   
-  } elsif ($opt eq "calEventList") {                                                          # Termine einer Cal_id (Liste) in Zeitgrenzen abrufen 	  
+  } elsif ($opt eq "calUpdate") {                                                             # Termine einer Cal_id (Liste) in Zeitgrenzen abrufen
       return "Obtain the Calendar list first with \"get $name getCalendars\" command." if(!$hash->{HELPER}{CALFETCHED});
-	  my ($err,$tstart,$tend) = SSCal_timeEdge ($name);
-      
-	  if($err) {
-          Log3($name, 2, "$name - ERROR in timestamp: $err");
-        
-          my $errorcode = "910";
 
-          readingsBeginUpdate         ($hash); 
-          readingsBulkUpdateIfChanged ($hash, "Error",           $err);
-          readingsBulkUpdateIfChanged ($hash, "Errorcode", $errorcode);
-          readingsBulkUpdate          ($hash, "state",        "Error");                    
-          readingsEndUpdate           ($hash,1);
-
-          return "ERROR in timestamp: $err";	      
-	  }	  
-	  
-	  my $cals = AttrVal($name,"usedCalendars", "");
-      
+      my $cals = AttrVal($name,"usedCalendars", "");
       shift @a; shift @a;
-      my $c = join(" ", @a);
-      $cals = $c?$c:$cals;
-	  return "Please set attribute \"usedCalendars\" or specify the Calendar(s) you want read in \"$opt\" command." if(!$cals);
-	  
+      my $c    = join(" ", @a);
+      $cals    = $c?$c:$cals;
+      return "Please set attribute \"usedCalendars\" or specify the Calendar(s) you want read in \"$opt\" command." if(!$cals);
+      
       # Kalender aufsplitten und zu jedem die ID ermitteln
       my @ca = split(",", $cals);
-	  my $oids;
+      my ($oids,$caltype,@cas);
+      if($model eq "Diary") { $caltype = "Event"; } else { $caltype = "ToDo"; }
       foreach (@ca) {                                         
           my $oid = $hash->{HELPER}{CALENDARS}{"$_"}{id};
           next if(!$oid);
-          if ($hash->{HELPER}{CALENDARS}{"$_"}{type} ne "Event") {
-              Log3($name, 3, "$name - The Calendar \"$_\" is not of type \"Event\" and will be ignored.");
+          if ($hash->{HELPER}{CALENDARS}{"$_"}{type} ne $caltype) {
+              Log3($name, 3, "$name - The Calendar \"$_\" is not of type \"$caltype\" and will be ignored.");
               next;
           }          
-		  $oids .= "," if($oids);
-		  $oids .= '"'.$oid.'"';
-		  Log3($name, 2, "$name - WARNING - The Calendar \"$_\" seems to be unknown because its ID couldn't be found.") if(!$oid);
+          $oids .= "," if($oids);
+          $oids .= '"'.$oid.'"';
+          push (@cas, $_);
+          Log3($name, 2, "$name - WARNING - The Calendar \"$_\" seems to be unknown because its ID couldn't be found.") if(!$oid);
       }
-	  
-	  return "No Calendar of type \"Event\" was selected or its ID(s) couldn't be found." if(!$oids);
+      return "No Calendar of type \"$caltype\" was selected or its ID(s) couldn't be found." if(!$oids); 
+
+      Log3($name, 5, "$name - Calendar selection for add queue: ".join(',', @cas));
+
+      if($model eq "Diary") {                                                 # Modell Terminkalender
+          my ($err,$tstart,$tend) = SSCal_timeEdge ($name);
+          if($err) {
+              Log3($name, 2, "$name - ERROR in timestamp: $err");
+            
+              my $errorcode = "910";
+
+              readingsBeginUpdate         ($hash); 
+              readingsBulkUpdateIfChanged ($hash, "Error",           $err);
+              readingsBulkUpdateIfChanged ($hash, "Errorcode", $errorcode);
+              readingsBulkUpdate          ($hash, "state",        "Error");                    
+              readingsEndUpdate           ($hash,1);
+
+              return "ERROR in timestamp: $err";	      
+          }	  
+
+          my $lr = AttrVal($name,"showRepeatEvent", "true");
+          SSCal_addQueue($name,"eventlist","CALEVENT","list","&cal_id_list=[$oids]&start=$tstart&end=$tend&list_repeat=$lr"); 
+          SSCal_getapisites($name);      
       
-      Log3($name, 5, "$name - Calendar selection for add queue: $cals");
-      my $lr = AttrVal($name,"showRepeatEvent", "true");
-	  SSCal_addQueue($name,"eventlist","CALEVENT","list","&cal_id_list=[$oids]&start=$tstart&end=$tend&list_repeat=$lr"); 
-      SSCal_getapisites($name);
-  
-  } elsif ($opt eq "calToDoList") {                                                          # Aufgaben einer Cal_id (Liste) abrufen 	  
-      return "Obtain the Calendar list first with \"get $name getCalendars\" command." if(!$hash->{HELPER}{CALFETCHED});  
-	  
-	  my $cals = AttrVal($name,"usedCalendars", "");
-      
-      shift @a; shift @a;
-      my $c = join(" ", @a);
-      $cals = $c?$c:$cals;
-	  return "Please set attribute \"usedCalendars\" or specify the Calendar(s) you want read in \"$opt\" command." if(!$cals);
-	  
-      # Kalender aufsplitten und zu jedem die ID ermitteln
-      my @ca = split(",", $cals);
-	  my $oids;
-      foreach (@ca) {                                         
-          my $oid = $hash->{HELPER}{CALENDARS}{"$_"}{id};
-          next if(!$oid);
-          if ($hash->{HELPER}{CALENDARS}{"$_"}{type} ne "ToDo") {
-              Log3($name, 3, "$name - The Calendar \"$_\" is not of type \"ToDo\" and will be ignored.");
-              next;
-          }          
-		  $oids .= "," if($oids);
-		  $oids .= '"'.$oid.'"';
-		  Log3($name, 2, "$name - WARNING - The Calendar \"$_\" seems to be unknown because its ID couldn't be found.") if(!$oid);
+      } else {                                                                # Modell Aufgabenliste
+          my $limit          = "";                                            # Limit of matched tasks
+          my $offset         = 0;                                             # offset of mnatched tasks
+          my $filterdue      = AttrVal($name,"filterDueTask", 3);             # show tasks with and without due time
+          my $filtercomplete = AttrVal($name,"filterCompleteTask", 3);        # show completed and not completed tasks
+          
+          SSCal_addQueue($name,"todolist","CALTODO","list","&cal_id_list=[$oids]&limit=$limit&offset=$offset&filter_due=$filterdue&filter_complete=$filtercomplete"); 
+          SSCal_getapisites($name);      
       }
-	  
-	  return "No Calendar of type \"ToDo\" was selected or its ID(s) couldn't be found." if(!$oids);
-      
-      Log3($name, 5, "$name - Calendar selection for add queue: $cals");
-      
-      my $limit          = "";                                      # Limit of matched tasks
-      my $offset         = 0;                                       # offset of mnatched tasks
-      my $filterdue      = AttrVal($name,"filterDueTask", 3);       # show tasks with and without due time
-      my $filtercomplete = AttrVal($name,"filterCompleteTask", 3);  # show completed and not completed tasks
-      
-	  SSCal_addQueue($name,"todolist","CALTODO","list","&cal_id_list=[$oids]&limit=$limit&offset=$offset&filter_due=$filterdue&filter_complete=$filtercomplete"); 
-      SSCal_getapisites($name);
   
   } elsif ($opt eq "cleanCompleteTasks") {                                                          # erledigte Aufgaben einer Cal_id (Liste) löschen 	  
       return "Obtain the Calendar list first with \"get $name getCalendars\" command." if(!$hash->{HELPER}{CALFETCHED});  
@@ -882,7 +859,7 @@ sub SSCal_periodicCall($) {
   if(!$interval) {
       $hash->{MODE} = "Manual";
   } else {
-      $new          = gettimeofday()+$interval;
+      $new = gettimeofday()+$interval;
       readingsBeginUpdate ($hash);
       readingsBulkUpdate  ($hash, "nextUpdate", "Automatic - next polltime: ".FmtTime($new));     # Abrufmode initial auf "Manual" setzen   
       readingsEndUpdate   ($hash,1);
@@ -892,8 +869,7 @@ sub SSCal_periodicCall($) {
   return if(!$interval);
   
   if($hash->{CREDENTIALS} && !IsDisabled($name)) {
-      if($model eq "Diary") { CommandSet(undef, "$name calEventList") };                      # Einträge aller gewählter Terminkalender abrufen (in Queue stellen)
-	  if($model eq "Tasks") { CommandSet(undef, "$name calToDoList")  };                      # Einträge aller gewählter Aufgabenlisten abrufen (in Queue stellen)
+      CommandSet(undef, "$name calUpdate");                                                       # Einträge aller gewählter Kalender oder Aufgabenlisten abrufen (in Queue stellen)
   }
   
   InternalTimer($new, "SSCal_periodicCall", $name, 0);
@@ -1489,12 +1465,11 @@ sub SSCal_calop_parse ($) {
                 # Queuedefinition sichern vor checkretry
                 my $idx = $hash->{OPIDX};
                 my $api = $data{SSCal}{$name}{sendqueue}{entries}{$idx}{api};
-                my $set = ($api eq "CALEVENT")?"calEventList":"calToDoList";
                 
                 SSCal_checkretry($name,0);
                 
                 # Kalendereinträge neu einlesen nach dem löschen Event Id
-                CommandSet(undef, "$name $set");
+                CommandSet(undef, "$name calUpdate");
                 
             }					
            
@@ -1693,12 +1668,12 @@ sub SSCal_extractEventlist ($) {
               if ($freq eq "MONTHLY") {                                        # monatliche Wiederholung                       
                   if ($bymonthday) {                                           # Wiederholungseigenschaft am Tag X des Monats     
                       for ($ci=-1; $ci<($count*$interval); $ci+=$interval) {
-                          $bmonth += $interval;
+                          $bmonth += $interval if($ci>=0);
                           $byear  += int( $bmonth/13);
                           $bmonth %= 12 if($bmonth>12);
                           $bmonth = sprintf("%02d", $bmonth);
                           
-                          $emonth += $interval;
+                          $emonth += $interval if($ci>=0);
                           $eyear  += int( $emonth/13);
                           $emonth %= 12 if($emonth>12);
                           $emonth = sprintf("%02d", $emonth);
@@ -1836,63 +1811,48 @@ sub SSCal_extractEventlist ($) {
                   }
               }
   
-              if ($freq eq "WEEKLY") {                                          # wöchentliche Wiederholung                            						                            
-                  if ($byday) {                                                 # Wiederholungseigenschaft -> Wochentag z.B. 2WE,-1SU,4FR (kann auch Liste bei WEEKLY sein)              
-                      my ($nbhh,$nbmm,$nbss,$nehh,$nemm,$ness,$rDayOfWeekNew,$rDaysToAddOrSub); 
-                      my @ByDays   = split(",", $byday);                        # Array der Wiederholungstage
+              if ($freq eq "WEEKLY") {                                              # wöchentliche Wiederholung                            						                            
+                  if ($byday) {                                                     # Wiederholungseigenschaft -> Wochentag z.B. 2WE,-1SU,4FR (kann auch Liste bei WEEKLY sein)              
+                      my ($nbhh,$nbmm,$nbss,$nehh,$nemm,$ness,$rNewTime,$rDayOfWeekNew,$rDaysToAddOrSub);                   
+                      my @ByDays   = split(",", $byday);                            # Array der Wiederholungstage
                       my $btsstart = $bts;
+                      $ci = -1;
                       
-                      foreach (@ByDays) {
-                          my $rNewTime     = $btsstart;
-                          my $rByDay       = $_;	                            # das erste Wiederholungselement
-                          my $rByDayLength = length($rByDay);                   # die Länge des Strings       
-  
-                          my $rDayStr;		                                    # Tag auf den das Datum gesetzt werden soll
-                          my $rDayInterval;	                                    # z.B. 2 = 2nd Tag des Monats oder -1 = letzter Tag des Monats
-                          if ($rByDayLength > 2) {
-                              $rDayStr      = substr($rByDay, -2);
-                              $rDayInterval = int(substr($rByDay, 0, $rByDayLength - 2));
-                          } else {
-                              $rDayStr      = $rByDay;
-                              $rDayInterval = 1;
-                          }
-  
-                          my @weekdays     = qw(SU MO TU WE TH FR SA);
-                          my ($rDayOfWeek) = grep {$weekdays[$_] eq $rDayStr} 0..$#weekdays;     # liefert Nr des Wochentages: SU = 0 ... SA = 6
-                          
-                          for ($ci=-1; $ci<$count; $ci++) {
+                      while ($ci<$count) {                                                   
+                          $rNewTime = $btsstart;
+                          foreach (@ByDays) {
+                              $ci++;
+                              my $rByDay       = $_;	                                            # das erste Wiederholungselement    
+                              my @weekdays     = qw(SU MO TU WE TH FR SA);
+                              my ($rDayOfWeek) = grep {$weekdays[$_] eq $rByDay} 0..$#weekdays;     # liefert Nr des Wochentages: SU = 0 ... SA = 6
                               
-                              $rNewTime += $interval*604800 if($ci>=0);                          # Wochenintervall addieren
                               ($nbss, $nbmm, $nbhh, $bmday, $bmonth, $byear, $rDayOfWeekNew, undef, undef) = localtime($rNewTime);                                        
                               
                               ($nbhh,$nbmm,$nbss)  = split(":", $nbtime);
-  
-                              if ($rDayOfWeekNew <= $rDayOfWeek) {                               # Nr aktueller Wochentag <= Sollwochentag
+
+                              if ($rDayOfWeekNew <= $rDayOfWeek) {                                  # Nr aktueller Wochentag <= Sollwochentag
                                   $rDaysToAddOrSub = $rDayOfWeek - $rDayOfWeekNew;
                               } else {
                                   $rDaysToAddOrSub = 7 - $rDayOfWeekNew + $rDayOfWeek;          
-                                  $rNewTime       -= 604800;                                     # eine Woche zurückgehen wenn Korrektur aufaddiert wurde
                               }                                            
-                    
-                              $rDaysToAddOrSub += (7 * ($rDayInterval - 1));                     # addiere Tagesintervall, z.B. 4th Freitag ...
-  
-                              $rNewTime = SSCal_plusNSeconds($rNewTime, 86400*$rDaysToAddOrSub, 1);                                                                                                
+
+                              $rNewTime = SSCal_plusNSeconds($rNewTime, 86400 * $rDaysToAddOrSub, 1);                             
                               ($nbss,$nbmm,$nbhh,$bmday,$bmonth,$byear,$ness,$nemm,$nehh,$emday,$emonth,$eyear) = SSCal_DTfromStartandDiff ($rNewTime,$startEndDiff);
-                                               
+               
                               $nbtime = $nbhh.$nbmm.$nbss;
                               $netime = $nehh.$nemm.$ness;
-  
+
                               my $dtstart = $byear.$bmonth.$bmday."T".$nbtime;
                               ($bi,undef,$nbdate,$nbtime,$nbts,$excl) = SSCal_explodeDateTime ($hash, $byear.$bmonth.$bmday."T".$nbtime, 0, $uid, $dtstart);  # Beginn des Wiederholungsevents
                               ($ei,undef,$nedate,$netime,$nets,undef) = SSCal_explodeDateTime ($hash, $eyear.$emonth.$emday."T".$netime, 0, $uid, $dtstart);  # Ende des Wiederholungsevents
-  
+
                               Log3($name, 5, "$name - WEEKLY event - Begin: $nbdate $nbtime, End: $nedate $netime");
                               
-                              if (defined $uets && ($uets < $nbts)) {                                    # Event Ende (UNTIL) kleiner aktueller Select Start 
+                              if (defined $uets && ($uets < $nbts)) {                               # Event Ende (UNTIL) kleiner aktueller Select Start 
                                   Log3($name, 4, "$name - Ignore WEEKLY event due to UNTIL -> $data->{data}{$key}[$i]{summary} , start: $nbdate $nbtime, end: $nedate $netime, until: $until");
                                   $ignore = 1;
                                   $done   = 0;                                        
-                              } elsif ($nets < $tstart || $nbts > $tend) {                               # Event Ende kleiner Select Start oder Beginn Event größer als Select Ende
+                              } elsif ($nets < $tstart || $nbts > $tend) {                          # Event Ende kleiner Select Start oder Beginn Event größer als Select Ende
                                   Log3($name, 4, "$name - Ignore WEEKLY event -> $data->{data}{$key}[$i]{summary} , start: $nbdate $nbtime, end: $nedate $netime");
                                   $ignore = 1;
                                   $done   = 0;                                        
@@ -1910,19 +1870,19 @@ sub SSCal_extractEventlist ($) {
                                   $ets   = $nets?$nets:$ets;                  
                                   
                                   @row_array = SSCal_writeValuesToArray ($name,$n,$data->{data}{$key}[$i],$tz,$bdate,$btime,$bts,$edate,$etime,$ets,\@row_array,$uid);
-  
+
                                   $ignore = 0;
                                   $done   = 1;
                                   $n++;
-                                  # next;
                               }                     
-                                                          
-                              last if((defined $uets && ($uets < $nbts)) || $nbts > $tend);  
+                              last if((defined $uets && ($uets < $nbts)) || $nbts > $tend || $ci == $count);              
                           }
-                      }   
+                          last if((defined $uets && ($uets < $nbts)) || $nbts > $tend || $ci == $count);
+                          $btsstart += (7 * 86400 * $interval);                                    # addiere Tagesintervall, z.B. 4th Freitag ...                             
+                      }    
                   
                   } else {    
-                      my ($nbhh,$nbmm,$nbss,$nehh,$nemm,$ness,$rDayOfWeekNew,$rDaysToAddOrSub); 
+                      my ($nbhh,$nbmm,$nbss,$nehh,$nemm,$ness); 
                       my $rNewTime = $bts;
                       
                       for ($ci=-1; $ci<($count*$interval); $ci+=$interval) {
@@ -2209,7 +2169,7 @@ sub SSCal_createReadings ($) {
   readingsBeginUpdate         ($hash); 
   readingsBulkUpdateIfChanged ($hash, "Errorcode",  "none");
   readingsBulkUpdateIfChanged ($hash, "Error",      "none");    
-  readingsBulkUpdate          ($hash, "lastUpdate", $data{SSCal}{$name}{lastUpdate});                   
+  readingsBulkUpdate          ($hash, "lastUpdate", FmtTime(time));                   
   readingsBulkUpdate          ($hash, "state",      "done");                    
   readingsEndUpdate           ($hash,1); 
 
@@ -2643,7 +2603,7 @@ sub SSCal_extractIcal ($$) {
 	  $n++;
   }
   
-  $data{SSCal}{$name}{vcalendar} = \%icals;                                    # Achtung: bei asynch Mode ist hash->{HELPER} nur in BlockingCall !!
+  $data{SSCal}{$name}{vcalendar} = \%icals;                                    # Achtung: bei asynch Mode ist $data{SSCal}{$name}{vcalendar} nur im BlockingCall verfügbar !!
   
   Log3($name, 5, "$name - VCALENDAR extract of UID \"$uid\":\n".Dumper $data{SSCal}{$name}{vcalendar}{"$uid"}); 
   
