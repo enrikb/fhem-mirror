@@ -2,7 +2,7 @@
 # $Id$
 #
 # Usage
-# 
+#
 # define <name> weekprofile [device]
 ############################################## 
 
@@ -110,6 +110,16 @@ sub weekprofile_getDeviceType($$;$)
 {
   my ($me,$device,$sndrcv) = @_;
   
+  if (IsDummy($device)){
+    Log3 $me, 4, "$me(getDeviceType): $device is dummy - ignored";
+    return undef;
+  }
+  
+  if (IsIgnored($device)){
+    Log3 $me, 4, "$me(getDeviceType): $device is ignored";
+    return undef;
+  }
+  
   $sndrcv = "RCV" if (!defined($sndrcv));
 
   # determine device type
@@ -126,6 +136,12 @@ sub weekprofile_getDeviceType($$;$)
   
   if ($devType =~ /CUL_HM/){
     my $model = AttrVal($device,"model","");
+    
+    my $readonly = AttrVal($device,"readOnly",0);
+    if ($readonly) {
+      Log3 $me, 4, "$me(getDeviceType): $devHash->{NAME} is readonly - ignored";
+      return undef;
+    }
     
     #models: HM-TC-IT-WM-W-EU, HM-CC-RT-DN, HM-CC-TC
     unless ($model =~ m/.*HM-[C|T]C-.*/) {
@@ -149,13 +165,19 @@ sub weekprofile_getDeviceType($$;$)
     
     $type = "CUL_HM" if ( ($model =~ m/.*HM-CC-RT.*/) && ($channel == 4) );
     $type = "CUL_HM" if ( ($model =~ m/.*HM-TC.*/)    && ($channel == 2) );
-    $type = "CUL_HM" if ( ($model =~ m/.*HM-CC-TC.*/) && ($channel == 2) );
+    $type = "CUL_HM" if ( ($model =~ m/.*HM-CC-TC.*/) && ($channel == 2) );    
   }
   #avoid max shutter contact
   elsif ( ($devType =~ /MAX/) && ($devHash->{type} =~ /.*Thermostat.*/) ){
     $type = "MAX";
   }
   elsif ( $devType =~ /HMCCUDEV/){
+    my $readonly = AttrVal($device,"readOnly",0);
+    if ($readonly) {
+      Log3 $me, 4, "$me(getDeviceType): $devHash->{NAME} is readonly - ignored";
+      return undef;
+    }
+    
 	  my $model = $devHash->{ccutype};
     if (!defined($model)) {
       Log3 $me, 2, "$me(getDeviceType): ccutype not defined - take HM-xxx (HMCCU_HM)";
@@ -1356,12 +1378,13 @@ sub weekprofile_writeProfilesToFile(@)
     push (@content, "entry=".$json->encode($hash->{PROFILES}[$i]));
   }
   
-  my $filename = weekprofile_getDataFile($me);
-  Log3 $me, 5, "$me(writeProfileToFile): write profiles to $filename";
+  my $dbused = configDBUsed();
+  my $filename = weekprofile_getDataFile($hash);
+  Log3 $me, 5, "$me(writeProfileToFile): write profiles to $filename [DB: $dbused]";
   
   my $ret = FileWrite($filename,@content);
   if ($ret){
-    Log3 $me, 1, "$me(writeProfileToFile): write profiles to $filename failed $ret";
+    Log3 $me, 1, "$me(writeProfileToFile): write profiles to $filename [DB: $dbused] failed $ret";
   } else {
     DoTrigger($me,"PROFILES_SAVED",1);
     weekprofile_updateReadings($hash);
@@ -1370,7 +1393,8 @@ sub weekprofile_writeProfilesToFile(@)
 ##############################################
 sub weekprofile_getDataFile(@)
 {  
-  my ($me) =  @_;
+  my ($hash) = @_;
+  my $me = $hash->{NAME};
   my $filename = "%L/weekprofile-$me.cfg";
   $filename = AttrVal($me,"configFile",$filename);
   my @t = localtime(gettimeofday());
@@ -1378,6 +1402,7 @@ sub weekprofile_getDataFile(@)
   # compatibility to old weekprofile versions
   # if no global logdir is set - use log
   $filename =~s/%L/.\/log/g;
+  $hash->{CONFIGFILE} = $filename; # for configDB migration
   return $filename;
 }
 ############################################## 
@@ -1388,7 +1413,7 @@ sub weekprofile_readProfilesFromFile(@)
   
   my $useTopics = AttrVal($me,"useTopics",0);
 
-  my $filename = weekprofile_getDataFile($me);
+  my $filename = weekprofile_getDataFile($hash);
   Log3 $me, 5, "$me(readProfilesFromFile): read profiles from $filename";
   
   my ($ret, @content) = FileRead($filename);
@@ -1396,7 +1421,11 @@ sub weekprofile_readProfilesFromFile(@)
     if (configDBUsed()){
       Log3 $me, 1, "$me(readProfilesFromFile): please import your config file $filename into configDB!";
     } else {
-      Log3 $me, 1, "$me(readProfilesFromFile): $ret";
+      if ($ret =~ m/.*Can't open.*/) {
+        defined($hash->{MASTERDEV}) ? Log3 $me, 4, "$me(readProfilesFromFile): $ret" : Log3 $me, 3, "$me(readProfilesFromFile): $ret - save profil(s) at least one time";
+      } else {
+        Log3 $me, 1, "$me(readProfilesFromFile): $ret";
+      }
     }
     return;
   }
@@ -1626,6 +1655,10 @@ sub weekprofile_getEditLNK_MasterDev($$)
   With 'restore_topic' the defined profile in the attribute will be transfered to the thermostat.
   So it is possible to change the topic easily and all thermostats will be updated with the correndponding profile.
   <br><br>
+  <b>Hint:</b> 
+  weekprofile supports configdb and configdb migrate since svn: 21314.<br>
+  You have to import the profile\config file into configdb manually if you update from an earlier version.
+  <br><br>
   <b>Attention:</b> 
   To transfer a profile to a device it needs a lot of Credits. 
   This is not taken into account from this module. So it could be happend that the profile in the module 
@@ -1809,6 +1842,10 @@ sub weekprofile_getEditLNK_MasterDev($$)
   Über ein Userattribut 'weekprofile' im Thermostat wird ein Wochenprofile ohne Topicname angegeben.
   Mittels 'restore_topic' wird dann das angebene Wochenprofil der Topic an das Thermostat übertragen.
   Somit kann man einfach zwischen den Topics wechseln und die Thermostate bekommen das passende Wochenprofil.
+  <br><br>
+  <b>Hinweis:</b> 
+  weekprofile unterstützt configdb and configdb migrate seit SVN-Version: 21314.<br>
+  Wenn von einer früheren Version geupdatet wird, muss die Profiel-\Konfigurationsdatei manuell in configDB importiert werden.
   <br><br>
   <b>Achtung:</b> Das Übertragen von Wochenprofilen erfordet eine Menge an Credits. 
   Dies wird vom Modul nicht berücksichtigt. So kann es sein, dass nach dem 

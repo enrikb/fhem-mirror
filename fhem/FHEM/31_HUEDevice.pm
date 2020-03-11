@@ -1496,6 +1496,8 @@ HUEDevice_Parse($$)
   }
 
   $hash->{modelid} = $result->{modelid} if( defined($result->{modelid}) );
+  $attr{$name}{model} = $result->{modelid} if( !defined($attr{$name}{model}) && $result->{modelid} );
+
   $hash->{productid} = $result->{productid} if( defined($result->{productid}) );
   $hash->{swversion} = $result->{swversion} if( defined($result->{swversion}) );
   $hash->{swconfigid} = $result->{swconfigid} if( defined($result->{swconfigid}) );
@@ -1605,6 +1607,9 @@ HUEDevice_Parse($$)
 
       #Eurotronic Spirit ZigBee (SPZB0001)
       $readings{valve} = ceil((100/255) * $state->{valve}) if( defined ($state->{valve}) );
+
+      #Heiman Gassensor HS1CG
+      $readings{carbonmonoxide} = $state->{carbonmonoxide} if( defined($state->{carbonmonoxide}) );
     }
 
     $hash->{lastupdated} = ReadingsVal( $name, '.lastupdated', '' ) if( !$hash->{lastupdated} );
@@ -1653,8 +1658,6 @@ HUEDevice_Parse($$)
     return undef;
   }
 
-
-  $attr{$name}{model} = $result->{modelid} if( !defined($attr{$name}{model}) && $result->{modelid} );
 
   if( !defined($attr{$name}{subType}) ) {
     if( defined($attr{$name}{model}) ) {

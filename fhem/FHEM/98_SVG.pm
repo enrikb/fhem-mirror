@@ -889,8 +889,11 @@ SVG_substcfg($$$$$$)
 sub
 SVG_tspec(@)
 {
+  my $d=$_[3];
+  $d = 28 if($d==29 && $_[4]==1 && $_[5]%4);
+  $d = 30 if($d==31 && ($_[4] =~ /3|5|8|10/));
   return sprintf("%04d-%02d-%02d_%02d:%02d:%02d",
-                 $_[5]+1900,$_[4]+1,$_[3],$_[2],$_[1],$_[0]);
+                 $_[5]+1900,$_[4]+1,$d,$_[2],$_[1],$_[0]);
 }
 
 ##################
@@ -1014,20 +1017,18 @@ SVG_calcOffsets($$)
     }
     $l[4] += $off;
     $l[4] += 12, $l[5]-- if($l[4] < 0);
-    my @me = (31,28,31,30,31,30,31,31,30,31,30,31);
+    my @me = (31,29,31,30,31,30,31,31,30,31,30,31); # 29 is fixed in SVG_tspec
 
     if(SVG_Attr($FW_wname, $wl, "endPlotToday", undef)) {
       $sy = $ey = $l[5];
       $sm = $l[4]-1; $em = $l[4];
       $sm += 12, $sy-- if($sm < 0);
       $sd = $l[3]+1; $ed = $l[3];
-      $me[1]++ if(($sy+1900)%4); # leap year. Ignore 1900 and 2100 :)
       $sd=1, $sm=$em, $sy=$ey if($sd > $me[$sm]);
 
     } else {
       $sy = $ey = $l[5];
       $sm = $em = $l[4];
-      $me[1]++ if(($sy+1900)%4); # leap year. Ignore 1900 and 2100 :)
       $sd = 1; $ed = $me[$l[4]];
     }
     $SVG_devs{$d}{from} = SVG_tspec( 0, 0, 0,$sd,$sm,$sy);
@@ -1911,6 +1912,7 @@ SVG_render($$$$$$$$$$)
     my $xmul;
     $xmul = $w/($xmax-$xmin) if( $conf{xrange} );
     my $hmul = $h/($hmax{$a}-$min);
+    my $hfill = $hmul*$hmax{$a}; # Fill only to the 0-line, #108858
     my $ret = "";
     my ($dxp, $dyp) = ($hdx[$idx], $hdy[$idx]);
     SVG_pO "<!-- Warning: No data item $idx defined -->" if(!defined($dxp));
@@ -1958,7 +1960,7 @@ SVG_render($$$$$$$$$$)
 
     } elsif($lType eq "steps" || $lType eq "fsteps" ) {
 
-      $ret .=  sprintf(" %d,%d", $x+$dxp->[0], $y+$h) if($isFill && @{$dxp});
+      $ret .=  sprintf(" %d,%d", $x+$dxp->[0],$y+$hfill) if($isFill && @{$dxp});
       if(@{$dxp} == 1) {
           my $y1 = $y+$h-($dyp->[0]-$min)*$hmul;
           $ret .=  sprintf(" %d,%d %d,%d %d,%d %d,%d",
@@ -1985,12 +1987,12 @@ SVG_render($$$$$$$$$$)
           }
         }
       }
-      $ret .=  sprintf(" %d,%d", $lx, $y+$h) if($isFill && $lx > -1);
+      $ret .=  sprintf(" %d,%d", $lx, $y+$hfill) if($isFill && $lx > -1);
 
       SVG_pO "<polyline $attributes $lStyle points=\"$ret\"/>";
 
     } elsif($lType eq "histeps" ) {
-      $ret .=  sprintf(" %d,%d", $x+$dxp->[0], $y+$h) if($isFill && @{$dxp});
+      $ret .=  sprintf(" %d,%d", $x+$dxp->[0],$y+$hfill) if($isFill && @{$dxp});
       if(@{$dxp} == 1) {
           my $y1 = $y+$h-($dyp->[0]-$min)*$hmul;
           $ret .=  sprintf(" %d,%d %d,%d %d,%d %d,%d",
@@ -2005,7 +2007,7 @@ SVG_render($$$$$$$$$$)
              $x1,$y1, ($x1+$x2)/2,$y1, ($x1+$x2)/2,$y2, $x2,$y2);
         }
       }
-      $ret .=  sprintf(" %d,%d", $lx, $y+$h) if($isFill && $lx > -1);
+      $ret .=  sprintf(" %d,%d", $lx, $y+$hfill) if($isFill && $lx > -1);
       SVG_pO "<polyline $attributes $lStyle points=\"$ret\"/>";
 
     } elsif( $lType eq "bars" ) {
@@ -2140,7 +2142,7 @@ SVG_render($$$$$$$$$$)
 
         if($i == 0) {
           if($doClose) {
-            $ret .= sprintf("M %d,%d L %d,%d $lt", $x1,$y+$h, $x1,$y1);
+            $ret .= sprintf("M %d,%d L %d,%d $lt", $x1,$y+$hfill, $x1,$y1);
           } else {
             $ret .= sprintf("M %d,%d $lt", $x1,$y1);
           }
@@ -2167,7 +2169,7 @@ SVG_render($$$$$$$$$$)
   
       #-- insert last point for filled line
       $ret .= sprintf(" %.1f,%.1f", $x1, $y1) if(($lt eq "T") && defined($x1));
-      $ret .= sprintf(" L %d,%d Z", $x1, $y+$h) if($doClose && defined($x1));
+      $ret .= sprintf(" L %d,%d Z", $x1,$y+$hfill) if($doClose && defined($x1));
 
       if($ret =~ m/^ (\d+),(\d+)/) { # just points, no M/L
         $ret = sprintf("M %d,%d $lt ", $1, $2).$ret;

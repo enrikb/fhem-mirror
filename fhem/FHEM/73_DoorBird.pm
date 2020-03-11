@@ -3010,20 +3010,11 @@ sub DoorBird_Transmit_Audio($$) {
 		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - New Filesize            : " . $AudioDataSizeNew;
 
 		### Create complete command URL for DoorBird depending on whether SessionIdSecurity has been enabled (>0) or disabled (=0)
-		my $UrlPrefix 		= "http://" . $Url . "/bha-api/";
-		my $UrlPostfix;
-		
-		### If the Session ID has been activated
-		if ($hash->{helper}{SessionIdSec} > 0) {
-			$UrlPostfix 	= " sessionid=" . $hash->{helper}{SessionId} . " content-type=\"audio/basic\" use-content-length=true";			
-		}
-		### If the Session ID has NOT been activated use username and password instead
-		else {
-			my $username 	= DoorBird_credential_decrypt($hash->{helper}{".USER"});
-			my $password	= DoorBird_credential_decrypt($hash->{helper}{".PASSWORD"});
-			$UrlPostfix 	= " content-type=\"audio/basic\" use-content-length=true user=". $username . " passwd=" . $password;
-		}
-		my $CommandURL 		= $UrlPrefix . "audio-transmit.cgi" . $UrlPostfix;
+		my $UrlPrefix 	= "http://" . $Url . "/bha-api/";
+		my $username 	= DoorBird_credential_decrypt($hash->{helper}{".USER"});
+		my $password	= DoorBird_credential_decrypt($hash->{helper}{".PASSWORD"});
+		my $UrlPostfix 	= " content-type=\"audio/basic\" use-content-length=true user=". $username . " passwd=" . $password;
+		my $CommandURL 	= $UrlPrefix . "audio-transmit.cgi" . $UrlPostfix;
 
 		### Log Entry for debugging purposes
 		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - CommandURL              : " . $CommandURL ;
@@ -3035,7 +3026,7 @@ sub DoorBird_Transmit_Audio($$) {
 		   $GstCommand .= $CommandURL;
 
 		### Log Entry for debugging purposes
-		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - GstCommand              : " . $GstCommand ;
+		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - GstCommand              : " . $GstCommand;
 
 		### Create command for shell
 		my $ShellCommand  = "timeout " . ($AudioLength + 3) . " " . $GstCommand . " &";
@@ -3047,11 +3038,8 @@ sub DoorBird_Transmit_Audio($$) {
 		eval {
 						system($ShellCommand) or die "Could not execute" . $ShellCommand . " ". $@;
 		};
-		### If error message appered
-		if ( $@ ) {
-		#				$ErrorMessage = $@;
-			}
 
+		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - File streamed successf. : " . $AudioDataPathOrig;
 		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - ---------------------------------------------------------------";
 		return "The audio file: " . $AudioDataPathOrig . " has been streamed to the DoorBird";
 	}
@@ -4173,6 +4161,7 @@ sub DoorBird_findNewestFWVersion($$$)
 					<li>sudo apt-get install sox					</li>
 					<li>sudo apt-get install libsox-fmt-all			</li>
 					<li>sudo apt-get install libsodium-dev			</li>
+					<li>sudo apt-get install gstreamer1.0-tools     </li>
 					<li>sudo cpan Crypt::Argon2						</li>
 					<li>sudo cpan Alien::Base::ModuleBuild			</li>
 					<li>sudo cpan Alien::Sodium						</li>
@@ -4354,6 +4343,7 @@ sub DoorBird_findNewestFWVersion($$$)
 					<li>sudo apt-get install sox					</li>
 					<li>sudo apt-get install libsox-fmt-all			</li>
 					<li>sudo apt-get install libsodium-dev			</li>
+					<li>sudo apt-get install gstreamer1.0-tools     </li>
 					<li>sudo cpan Crypt::Argon2						</li>
 					<li>sudo cpan Alien::Base::ModuleBuild			</li>
 					<li>sudo cpan Alien::Sodium						</li>
@@ -4571,7 +4561,8 @@ sub DoorBird_findNewestFWVersion($$$)
       "requires": {
         "sox": 0,
         "libsox-fmt-all": 0,
-        "libsodium-dev": 0
+        "libsodium-dev": 0,
+		"gstreamer1.0-tools": 0
       },
       "recommends": {
       },

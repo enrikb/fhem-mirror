@@ -131,15 +131,10 @@ TcpServer_Accept($$)
       $err = "" if(!$err);
       $err .= " ".($SSL_ERROR ? $SSL_ERROR : IO::Socket::SSL::errstr());
       my $errLevel = ($err =~ m/error:14094416:SSL/ ? 5 : 1); # 61511
-
-      if($err =~ m/http request/) { # HTTP on HTTPS.
-        Log3 $name, $errLevel, "HTTP connect to HTTP socket (peer: $caddr)";
-      } else {
-        Log3 $name, $errLevel, "$type SSL/HTTPS error: $err (peer: $caddr)"
-          if($err !~ m/error:00000000:lib.0.:func.0.:reason.0./); #Forum 56364
-        close($clientinfo[0]);
-        return undef;
-      }
+      Log3 $name, $errLevel, "$type SSL/HTTPS error: $err (peer: $caddr)"
+        if($err !~ m/error:00000000:lib.0.:func.0.:reason.0./); #Forum 56364
+      close($clientinfo[0]);
+      return undef;
     }
   }
 
@@ -179,7 +174,8 @@ TcpServer_SetSSL($)
   }
 
   my $name = $hash->{NAME};
-  my $cp = AttrVal($name, "sslCertPrefix", "certs/server-");
+  my $cp = AttrVal("global", "modpath", ".")."/".
+           AttrVal($name, "sslCertPrefix", "certs/server-");
   if(! -r "${cp}key.pem") {
 
     Log 1, "$name: Server certificate missing, trying to create one";
@@ -197,7 +193,7 @@ TcpServer_SetSSL($)
     close(FH);
 
     my $cmd = "openssl req -new -x509 -days 3650 -nodes -newkey rsa:2048 ".
-                "-config certreq.txt -out ${cp}cert.pm -keyout ${cp}key.pem";
+                "-config certreq.txt -out ${cp}cert.pem -keyout ${cp}key.pem";
     Log 1, "Executing $cmd";
     `$cmd`;
     unlink("certreq.txt");
@@ -313,6 +309,12 @@ TcpServer_WriteBlocking($$)
 {
   my( $hash, $txt ) = @_;
 
+  if($hash->{WriteFn}) { # FWTP needs it
+    no strict "refs";
+    return &{$hash->{WriteFn}}($hash, \$txt);
+    use strict "refs";
+  }
+
   my $sock = $hash->{CD};
   return undef if(!$sock);
   my $off = 0;
@@ -334,6 +336,8 @@ TcpServer_WriteBlocking($$)
 
     if( defined $ret ){
       $off += $ret;
+      my $sh = $defs{$hash->{SNAME}};
+      $sh->{BYTES_WRITTEN} += $ret if(defined($sh->{BYTES_WRITTEN}));
 
     } elsif( $! == EWOULDBLOCK ){
       $hash->{wantRead} = 1

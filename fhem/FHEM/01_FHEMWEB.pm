@@ -14,6 +14,7 @@ use Time::HiRes qw(gettimeofday);
 sub FW_IconURL($);
 sub FW_addContent(;$);
 sub FW_addToWritebuffer($$@);
+sub FW_alias($$);
 sub FW_answerCall($);
 sub FW_confFiles($);
 sub FW_dev2image($;$);
@@ -305,6 +306,8 @@ FW_Define($$)
       }
     }, $hash, 0);
   }
+  $hash->{BYTES_READ} = 0;
+  $hash->{BYTES_WRITTEN} = 0;
 
   return $ret;
 }
@@ -362,11 +365,15 @@ FW_Read($$)
                   (defined($ret) ? 'EOF' : $!);
       return;
     }
+    my $sh = $defs{$FW_wname};
+    $sh->{BYTES_READ} += length($buf);
+
     $hash->{BUF} .= $buf;
     if($hash->{SSL} && $c->can('pending')) {
       while($c->pending()) {
         sysread($c, $buf, 1024);
         $hash->{BUF} .= $buf;
+        $sh->{BYTES_READ} += length($buf);
       }
     }
   }
@@ -421,6 +428,10 @@ FW_Read($$)
 
 
   if(!$hash->{HDR}) {
+    if(length($hash->{BUF}) > 1000000) {
+      Log3 $FW_wname, 2, "Too much header, terminating $hash->{PEER}";
+      return TcpServer_Close($hash, 1);
+    }
     return if($hash->{BUF} !~ m/^(.*?)(\n\n|\r\n\r\n)(.*)$/s);
     $hash->{HDR} = $1;
     $hash->{BUF} = $3;
@@ -429,6 +440,7 @@ FW_Read($$)
     }
   }
 
+  Log3 $FW_wname, 5, $hash->{HDR};
   my $POSTdata = "";
   if($hash->{CONTENT_LENGTH}) {
     return if(length($hash->{BUF})<$hash->{CONTENT_LENGTH});
@@ -552,28 +564,21 @@ FW_Read($$)
   Log3 $FW_wname, 4, "$name $method $arg; BUFLEN:".length($hash->{BUF});
   my $pf = AttrVal($FW_wname, "plotfork", undef);
   $pf = 1 if(!defined($pf) && AttrVal($FW_wname, "plotEmbed", 0) == 2);
-  if($pf) {   # 0 disables
-    # Process SVG rendering as a parallel process
+  if($pf) {
     my $p = $data{FWEXT};
     if(grep { $p->{$_}{FORKABLE} && $arg =~ m+^$FW_ME$_+ } keys %{$p}) {
       my $pid = fhemFork();
-      if($pid) { # success, parent
+      if($pid) {                                # success, parent
         use constant PRIO_PROCESS => 0;
         setpriority(PRIO_PROCESS, $pid, getpriority(PRIO_PROCESS,$pid) + $pf)
           if($^O !~ m/Win/);
-        # a) while child writes a new request might arrive if client uses
-        # pipelining or
-        # b) parent doesn't know about ssl-session changes due to child writing
-        # to socket
-        # -> have to close socket in parent... so that its only used in this
-        # child.
         TcpServer_Disown( $hash );
         delete($defs{$name});
         delete($attr{$name});
         FW_Read($hash, 1) if($hash->{BUF});
         return;
 
-      } elsif(defined($pid)){ # child
+      } elsif(defined($pid)){                   # child
         delete $hash->{BUF};
         $hash->{isChild} = 1;
 
@@ -714,6 +719,7 @@ FW_addToWritebuffer($$@)
       }
     }
   }
+  $defs{$hash->{SNAME}}{BYTES_WRITTEN} += length($txt);
   return addToWritebuffer($hash, $txt, $callback, $nolimit);
 }
 
@@ -913,6 +919,22 @@ FW_answerCall($)
 
   #If we are in XHR or json mode, execute the command directly
   if($FW_XHR || $FW_jsonp) {
+    if($FW_webArgs{asyncCmd}) {
+      my $pid = fhemFork();
+      if($pid) {                                # success, parent
+        TcpServer_Disown( $me );
+        delete($defs{$FW_cname});
+        delete($attr{$FW_cname});
+        FW_Read($me, 1) if($me->{BUF});
+        return -2;
+
+      } elsif(defined($pid)){                   # child
+        delete $me->{BUF};
+        $me->{isChild} = 1;
+
+      } 
+    }
+
     $FW_cmdret = $docmd ? FW_fC($cmd, $cmddev) : undef;
     $FW_RETTYPE = $FW_chash->{contenttype} ?
         $FW_chash->{contenttype} : "text/plain; charset=$FW_encoding";
@@ -1542,12 +1564,14 @@ FW_makeTableFromArray($$@) {
   my ($txt,$class,@obj) = @_;
   if (@obj>0) {
     my $row=1;
+    my $nameDisplay = AttrVal($FW_wname,"nameDisplay",undef);
     FW_pO "<div class='makeTable wide'>";
     FW_pO "<span class='mkTitle'>$txt</span>";
     FW_pO "<table class=\"block wide $class\">";
     foreach (sort @obj) {
       FW_pF "<tr class=\"%s\"><td>", (($row++)&1)?"odd":"even";
-      FW_pH "detail=$_", $_;
+      my $alias = FW_alias($_, $nameDisplay);
+      FW_pH "detail=$_", $alias eq $_ ? $_ : "$_ <span>($alias)</span>";
       FW_pO "</td><td>";
       FW_pO $defs{$_}{STATE} if(defined($defs{$_}{STATE}));
       FW_pO "</td><td>";
@@ -1768,14 +1792,14 @@ FW_roomOverview($)
 }
 
 sub
-FW_alias($)
+FW_alias($$)
 {
-  my ($d) = @_;
-  if($FW_room) {
-    return AttrVal($d, "alias_$FW_room", AttrVal($d, "alias", $d));
-  } else {
-    return AttrVal($d, "alias", $d);
-  }
+  my ($DEVICE,$nameDisplay) = @_;
+  my $ALIAS = AttrVal($DEVICE, "alias", $DEVICE);
+  $ALIAS = AttrVal($DEVICE, "alias_$FW_room", $ALIAS) if($FW_room);
+  $ALIAS = eval $nameDisplay if(defined($nameDisplay));
+
+  return $ALIAS;
 }
 
 sub
@@ -1785,11 +1809,7 @@ FW_makeDeviceLine($$$$$)
   my $rf = ($FW_room ? "&amp;room=$FW_room" : ""); # stay in the room
 
   FW_pF "\n<tr class=\"%s\">", ($row&1)?"odd":"even";
-  my $devName = FW_alias($d);
-  if(defined($nameDisplay)) {
-    my ($DEVICE, $ALIAS) = ($d, $devName);
-    $devName = eval $nameDisplay;
-  }
+  my $devName = FW_alias($d,$nameDisplay);
   my $icon = AttrVal($d, "icon", "");
   $icon = FW_makeImage($icon,$icon,"icon") . "&nbsp;" if($icon);
 
@@ -2102,8 +2122,8 @@ sub
 FW_fileList($;$)
 {
   my ($fname,$mtime) = @_;
-  $fname =~ s/%L/$attr{global}{logdir}/g #Forum #89744
-        if($fname =~ m/%/ && $attr{global}{logdir});
+  my $logdir = Logdir();
+  $fname =~ s/%L/$logdir/g; #Forum #89744
   $fname =~ m,^(.*)/([^/]*)$,; # Split into dir and file
   my ($dir,$re) = ($1, $2);
   return $fname if(!$re);
@@ -2324,7 +2344,7 @@ FW_fileNameToPath($)
   } elsif($name =~ m/.*gplot$/) {
     return "$FW_gplotdir/$name";
   } elsif($name =~ m/.*log$/) {
-    return AttrVal("global", "logdir", "log")."/$name";
+    return Logdir()."/$name";
   } else {
     return "$MW_dir/$name";
   }

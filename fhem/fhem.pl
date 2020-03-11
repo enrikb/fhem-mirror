@@ -3485,6 +3485,12 @@ FmtDateTimeRFC1123($)
 }
 
 
+sub
+Logdir()
+{
+  return AttrVal("global","logdir", AttrVal("global","modpath","")."/log");
+}
+
 #####################################
 sub
 ResolveDateWildcards($@)
@@ -3494,7 +3500,8 @@ ResolveDateWildcards($@)
   my ($f, @t) = @_;
   return $f if(!$f);
   return $f if($f !~ m/%/);     # Be fast if there is no wildcard
-  $f =~ s/%L/$attr{global}{logdir}/g if($attr{global}{logdir}); #log directory
+  my $logdir = Logdir();
+  $f =~ s/%L/$logdir/g;
   return strftime($f,@t);
 }
 
@@ -5161,12 +5168,13 @@ json2nameValue($;$$)
     $ret->{$name} = $val;
   };
 
-  sub eObj($$$$$$);
+  sub eObj($$$$$$;$);
   sub
-  eObj($$$$$$)
+  eObj($$$$$$;$)
   {
-    my ($ret,$map,$name,$val,$in,$prefix) = @_;
+    my ($ret,$map,$name,$val,$in,$prefix,$firstLevel) = @_;
     my $err; 
+    $prefix="" if(!$firstLevel);
 
     if($val =~ m/^"/) {
       ($err, $val, $in) = lStr($val);
@@ -5177,9 +5185,18 @@ json2nameValue($;$$)
     } elsif($val =~ m/^{/) { # }
       ($err, $val, $in) = lObj($val, '{', '}');
       return ($err,undef) if($err);
-      my $r2 = json2nameValue($val);
-      foreach my $k (keys %{$r2}) {
-        setVal($ret, $map, $prefix, "${name}_$k", $r2->{$k});
+
+      my %r2;
+      my $in2 = $val;
+      while($in2 =~ m/^\s*"([^"]+)"\s*:\s*(.*)$/s) {
+        my ($name,$val) = ($1,$2);
+        $name =~ s/[^a-z0-9._\-\/]/_/gsi;
+        ($err,$in2) = eObj(\%r2, $map, $name, $val, $in2, $prefix);
+        return ($err,undef) if($err);
+        $in2 =~ s/^\s*,\s*//;
+      }
+      foreach my $k (keys %r2) {
+        setVal($ret, $map, $prefix, $firstLevel ? $k : "${name}_$k", $r2{$k});
       }
 
     } elsif($val =~ m/^\[/) { 
@@ -5188,7 +5205,9 @@ json2nameValue($;$$)
       my $idx = 1;
       $val =~ s/^\s*//;
       while($val) {
-        ($err,$val) = eObj($ret, $map, $name."_$idx", $val, $val, $prefix);
+        ($err,$val) = eObj($ret, $map, 
+                                $firstLevel ? "$prefix$idx" : $name."_$idx",
+                                $val, $val, $prefix);
         return ($err,undef) if($err);
         $val =~ s/^\s*,\s*//;
         $val =~ s/\s*$//;
@@ -5214,20 +5233,16 @@ json2nameValue($;$$)
     return (undef, $in);
   }
 
-  $in = $1 if($in =~ m/^\s*{(.*)}\s*$/s);
-
+  $in =~ s/^\s+//;
+  $in =~ s/\s+$//;
   my $err;
-  while($in =~ m/^\s*"([^"]+)"\s*:\s*(.*)$/s) {
-    my ($name,$val) = ($1,$2);
-    $name =~ s/[^a-z0-9._\-\/]/_/gsi;
-    ($err,$in) = eObj(\%ret, $map, $name, $val, $in, $prefix);
-    if($err) {
-      Log 4, $err;
-      %ret = ();
-      return \%ret;
-    }
-    $in =~ s/^\s*,\s*//;
+  ($err,$in) = eObj(\%ret, $map, "", $in, "", $prefix, 1);
+  if($err) {
+    Log 4, $err;
+    %ret = ();
+    return \%ret;
   }
+
   return \%ret;
 }
 
